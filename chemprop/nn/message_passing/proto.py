@@ -13,7 +13,9 @@ class MessagePassing(nn.Module, HasHParams):
     output_dim: int
 
     @abstractmethod
-    def forward(self, bmg: BatchMolGraph, V_d: Tensor | None = None) -> Tensor:
+    def forward(
+        self, bmg: BatchMolGraph, V_d: Tensor | None = None, *, return_edge_features: bool = False
+    ) -> Tensor | tuple[Tensor, Tensor]:
         """Encode a batch of molecular graphs.
 
         Parameters
@@ -27,10 +29,13 @@ class MessagePassing(nn.Module, HasHParams):
 
         Returns
         -------
-        Tensor
-            a tensor of shape `V x d_h` or `V x (d_h + d_vd)` containing the hidden representation
-            of each vertex in the batch of graphs. The feature dimension depends on whether
-            additional vertex descriptors were provided
+        Tensor | tuple[Tensor, Tensor]
+            By default, returns a tensor of shape `V x d_h` or `V x (d_h + d_vd)` containing the
+            hidden representation of each vertex in the batch of graphs. The feature dimension
+            depends on whether additional vertex descriptors were provided. If
+            `return_edge_features=True`, returns a 2-tuple `(H_v, H_e)` where `H_v` is the vertex
+            representation as above and `H_e` is a tensor of shape `E x d_h` containing the final
+            directed edge hidden states before vertex aggregation.
         """
 
 

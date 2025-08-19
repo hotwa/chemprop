@@ -132,6 +132,52 @@ class MPNN(pl.LightningModule):
 
         return H if X_d is None else torch.cat((H, self.X_d_transform(X_d)), dim=1)
 
+    @torch.no_grad()
+    def encode_multi(
+        self,
+        bmg: BatchMolGraph,
+        V_d: Tensor | None = None,
+        X_d: Tensor | None = None,
+        *,
+        return_masks: bool = False,
+    ) -> tuple[Tensor, Tensor, Tensor | None] | tuple[Tensor, Tensor, Tensor | None, Tensor, Tensor]:
+        """
+        Convenience encoder to fetch graph, atom, and directed-edge features in one shot.
+
+        Returns
+        -------
+        - h_g: graph-level fingerprint `[B, d]` (after aggregation and optional `X_d` concat)
+        - H_atom: atom/node hidden states `[V, d_h]` (flattened across batch; use `bmg.batch` to group)
+        - H_edge: directed edge hidden states `[E, d_h]` (flattened; may be `None` for non-bond encoders)
+        - (optional) mask_atom: per-graph atom counts `[B]` if `return_masks=True`
+        - (optional) mask_edge: per-graph directed edge counts `[B]` if `return_masks=True`
+        """
+        # 1) Graph-level fingerprint (with optional X_d concatenation)
+        h_g = self.fingerprint(bmg, V_d, X_d)
+
+        # 2) Get both atom and edge features from message passing (edge states are pre-aggregation)
+        mp_out = self.message_passing(bmg, V_d, return_edge_features=True)
+        if isinstance(mp_out, tuple) and len(mp_out) == 2:
+            H_atom, H_edge = mp_out
+        else:
+            H_atom, H_edge = mp_out, None
+
+        if not return_masks:
+            return h_g, H_atom, H_edge
+
+        # 3) Simple per-graph counts as masks (no padding here)
+        try:
+            B = len(bmg)
+            mask_atom = torch.bincount(bmg.batch, minlength=B)
+            # attribute each directed edge to its destination node's graph id
+            edge_graph_ids = bmg.batch[bmg.edge_index[1]]
+            mask_edge = torch.bincount(edge_graph_ids, minlength=B)
+        except Exception:
+            mask_atom = torch.tensor([])
+            mask_edge = torch.tensor([])
+
+        return h_g, H_atom, H_edge, mask_atom, mask_edge
+
     def encoding(
         self, bmg: BatchMolGraph, V_d: Tensor | None = None, X_d: Tensor | None = None, i: int = -1
     ) -> Tensor:
